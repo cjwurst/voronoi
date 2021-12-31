@@ -1,6 +1,8 @@
 import tkinter as tk
 import math
+from typing import Callable
 
+# responsible for managing sweep line events
 def make_voronoi_diagram(sites, xBounds, yBounds):
     sweep_line = yBounds[1]
     beach_line = BeachLine()
@@ -10,39 +12,66 @@ def make_voronoi_diagram(sites, xBounds, yBounds):
     for site in sites:
         site_event_queue.append(SiteEvent(site))
     circle_event_queue = []
+    circle_events_by_arc = {}
 
     def handle_site_event(site_event):
-        beach_line.handle_site_event(site_event)
+        add_circle_events(beach_line.handle_site_event(site_event))
             
+    def handle_circle_event(circle_event):
+        add_circle_events(beach_line.handle_circle_event(circle_event))
+
+    def add_circle_events(events):
+        for event in events:
+            ListHelper.sorted_insert(event, circle_event_queue, lambda c: c.y)
+            for arc in event.arcs:
+                circle_events_by_arc.setdefault(arc, []).append(event)
+
+class ListHelper:
+    # TODO: use a binary search
+    # assumes *sorted_list* is sorted descending
+    @staticmethod
+    def sorted_insert(element, sorted_list:list, key:Callable):
+        value = key(element)
+        j = 0
+        for i in range(0, sorted_list.count()):
+            j = i
+            if key(sorted_list[i]) < value:
+                break
+        sorted_list.insert(j, element)
 
 class BeachLine:
     def __init__(self):
-        self.sites = []
+        self.arcs = []
 
     # returns new circle events
-    def handle_site_event(self, site, directrix):
-        i = 0       # the index of the site whose curve is directly above *site*
-        for j in range(0, self.sites.count()):
+    def handle_site_event(self, site_event, directrix):
+        arc = SiteArc(site_event.site)
+
+        i = 0       # the index of the site whose curve is directly above *site_event.site*
+        for j in range(0, self.arcs.count()):
             i = j
-            if self.get_breakpoint(i, directrix) > site.x:
+            if self.get_breakpoint(i, directrix) > site_event.site.point.x:
                 break
 
-        # the new site is sandwiched between two occurences of the old site
-        old_site = self.sites[i]
-        self.sites.insert(i, site)
-        self.sites.insert(i, old_site)
+        # The new site is sandwiched between two occurences of the old site
+        old_arc = self.arcs[i]
+        self.arcs.insert(i, arc)
+        self.arcs.insert(i, old_arc)
 
         circle_events = []
         if i > 1:
-            circle_events.append(CircleEvent(self.sites[i - 2], self.sites[i - 1], self.sites[i]))
-        if self.sites.count() > i + 2:
-            circle_events.append(CircleEvent(self.sites[i], self.sites[i + 1], self.sites[i + 2]))
+            circle_events.append(CircleEvent(self.arcs[i - 2].site, self.arcs[i - 1].site, self.arcs[i].site))
+        if self.arcs.count() > i + 2:
+            circle_events.append(CircleEvent(self.arcs[i].site, self.arcs[i + 1].site, self.arcs[i + 2].site))
         return circle_events
+
+    def handle_circle_event(self, circle_event, directrix):
+        pass
 
     # returns the breakpoint between *sites[i] and sites[i + 1]*
     def get_breakpoint(self, i, directrix):
-        l_point = self.sites[i].point
-        r_point = self.sites[i + 1].point
+        l_point = self.arcs[i].site.point
+        r_point = self.arcs[i + 1].site.point
         l_parabola = Parabola(directrix, (l_point.x, l_point.y))
         r_parabola = Parabola(directrix, (r_point.x, r_point.y))
 
@@ -52,9 +81,10 @@ class BeachLine:
         return l_parabola.intersect_with(r_parabola)[index]
 
 class CircleEvent:
-    def __init__(self, l_site, m_site, r_site):
-        self.sites = [l_site, m_site, r_site]
-        (r, center) = Point.find_circumcircle(l_site.point, m_site.point, r_site.point)
+    def __init__(self, l_arc, m_arc, r_arc):
+        self.arcs = [l_arc, m_arc, r_arc]
+        self.sites = [l_arc.site, m_arc.site, r_arc.site]
+        (r, center) = Point.find_circumcircle(self.sites[0].point, self.sites[1].point, self.sites[2].point)
         self.y = center.y - r
 
 class SiteEvent:
@@ -66,6 +96,12 @@ class Site:
     def __init__(self, point):
         self.point = point
 
+# One site may appear in the beachline more than once -- this wrapper exists to differentiate them so that the 
+#   appropriate events can be removed from the circle_event_queue
+class SiteArc:
+    def __init__(self, site):
+        self.site = site
+
 class Point:
     def __init__(self, x, y):
         self.x = x
@@ -76,7 +112,7 @@ class Point:
         y_diff = self.y - point.y
         return math.sqrt(x_diff * x_diff + y_diff * y_diff)
 
-    # returns a (point, float) tuple which holds the center and radius
+    # returns a (point, float) tuple which cointains the center and radius
     @staticmethod
     def find_circumcircle(point_1, point_2, point_3):
         m_1 = (point_1.x - point_2.x) / (point_2.y - point_1.y)
@@ -92,12 +128,6 @@ class Point:
         # point slope form: (y - y1) = m(x-x1)
         # slope intercept form: y = m * x + y1 - m * x1
         # intersection: m1x + b1 = m2x + b2
-
-class Helper:
-    @staticmethod
-    def find_circumcenter(x_1, y_1, x_2, y_2, x_3, y_3):
-        m_1 = (x_1 - x_2) / (y_2 - y_1)
-        m_2 = (x_1 - x_3) / (y_3 - y_1)
 
 class Parabola:
     def __init__(self, directrix = 0, focus = (0, 0)):
@@ -118,7 +148,7 @@ class Parabola:
     def evaluate(self, x):
         return self.a * math.pow(x - self.focus[0], 2) + self.vertex[1]
 
-    # returns all intersections in ascending order
+    # returns all intersections in ascending x order
     def intersect_with(self, parabola):
         a_diff = self.a - parabola.a
         b_diff = self.b - parabola.b
