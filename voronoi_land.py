@@ -19,12 +19,18 @@ def make_voronoi_diagram(sites, xBounds, yBounds):
             
     def handle_circle_event(circle_event):
         add_circle_events(beach_line.handle_circle_event(circle_event))
+        remove_circle_events(circle_event.arcs[1])
 
     def add_circle_events(events):
         for event in events:
             ListHelper.sorted_insert(event, circle_event_queue, lambda c: c.y)
             for arc in event.arcs:
                 circle_events_by_arc.setdefault(arc, []).append(event)
+
+    # removes all circle events associated with *arc*
+    def remove_circle_events(arc):
+        for event in circle_events_by_arc[arc]:
+            circle_event_queue.remove(event)
 
 class ListHelper:
     # TODO: use a binary search
@@ -66,7 +72,14 @@ class BeachLine:
         return circle_events
 
     def handle_circle_event(self, circle_event, directrix):
-        pass
+
+        new_circle_events = []
+        i = self.arcs.index(circle_event.arcs[1])
+        if i > 1 and i < self.arcs.count() - 1:
+            new_circle_events.append(CircleEvent(self.arcs[i - 2], self.arcs[i - 1], self.arcs[i + 1]))
+        if i > 0 and i < self.arcs.count() - 2:
+            new_circle_events.append(CircleEvent(self.arcs[i - 1], self.arcs[i + 1]), self.arcs[i + 2])
+        return new_circle_events
 
     # returns the breakpoint between *sites[i] and sites[i + 1]*
     def get_breakpoint(self, i, directrix):
