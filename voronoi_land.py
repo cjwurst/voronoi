@@ -7,6 +7,7 @@ def make_voronoi_diagram(sites, xBounds, yBounds):
     sweep_line = yBounds[1]
     beach_line = BeachLine()
 
+    edges = EdgeHolder()
     site_event_queue = []
     sites.sort(key = lambda s: s.y)
     for site in sites:
@@ -141,6 +142,32 @@ class Point:
         # point slope form: (y - y1) = m(x-x1)
         # slope intercept form: y = m * x + y1 - m * x1
         # intersection: m1x + b1 = m2x + b2
+
+class Edge:
+    def __init__(self, start:Point, end:Point, site):
+        self.start = start
+        self.end = end
+        self.site = site
+
+class EdgeHolder:
+    def __init__(self):
+        self.starts_by_sites = {}
+        self.edges_by_sites = {}
+
+    def push_start(self, site_1:Site, site_2:Site, start:Point):
+        self.starts_by_sites[(site_1, site_2)] = start
+        self.starts_by_sites[(site_2, site_1)] = start
+
+    def push_end(self, site_1:Site, site_2:Site, end:Point):
+        edge = Edge(self.starts_by_sites[(site_1, site_2)], end)
+        self.edges_by_sites[(site_1, site_2)] = edge
+        self.edges_by_sites[(site_2, site_1)] = edge
+
+    def get_edge(self, site_1, site_2):
+        return self.edges_by_sites[(site_1, site_2)]
+
+    def get_all_edges(self):
+        return list(dict.fromkeys(self.edges_by_sites.items))
 
 class Parabola:
     def __init__(self, directrix = 0, focus = (0, 0)):
