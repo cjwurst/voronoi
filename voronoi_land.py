@@ -2,7 +2,7 @@ import tkinter as tk
 import math
 from typing import Callable
 
-# responsible for managing sweep line events
+# Responsible for managing sweep line events
 def make_voronoi_diagram(sites, xBounds, yBounds):
     sweep_line = yBounds[1]
     beach_line = BeachLine()
@@ -28,7 +28,7 @@ def make_voronoi_diagram(sites, xBounds, yBounds):
             for arc in event.arcs:
                 circle_events_by_arc.setdefault(arc, []).append(event)
 
-    # removes all circle events associated with *arc*
+    # Removes all circle events associated with *arc*
     def remove_circle_events(arc):
         for event in circle_events_by_arc[arc]:
             circle_event_queue.remove(event)
@@ -50,11 +50,12 @@ class BeachLine:
     def __init__(self):
         self.arcs = []
 
-    # returns new circle events
+    # Returns new circle events
     def handle_site_event(self, site_event, directrix):
         arc = SiteArc(site_event.site)
 
-        i = 0       # the index of the site whose curve is directly above *site_event.site*
+        # TODO: Binary search
+        i = 0       # The index of the site whose curve is directly above *site_event.site*
         for j in range(0, self.arcs.count()):
             i = j
             if self.get_breakpoint(i, directrix) > site_event.site.point.x:
@@ -72,8 +73,11 @@ class BeachLine:
             circle_events.append(CircleEvent(self.arcs[i].site, self.arcs[i + 1].site, self.arcs[i + 2].site))
         return circle_events
 
-    def handle_circle_event(self, circle_event, directrix):
-
+    def handle_circle_event(self, circle_event, directrix, edge_holder):
+        endpoint = self.get_breakpoint(self.arcs.index(circle_event.arcs[0]), directrix)
+        edge_holder.push_endpoint(circle_event.sites[0], circle_event.sites[1], endpoint)
+        edge_holder.push_endpoint(circle_event.sites[1], circle_event.sites[2], endpoint)
+        
         new_circle_events = []
         i = self.arcs.index(circle_event.arcs[1])
         if i > 1 and i < self.arcs.count() - 1:
@@ -82,7 +86,7 @@ class BeachLine:
             new_circle_events.append(CircleEvent(self.arcs[i - 1], self.arcs[i + 1]), self.arcs[i + 2])
         return new_circle_events
 
-    # returns the breakpoint between *sites[i] and sites[i + 1]*
+    # Returns the breakpoint between *arcs[i] and arcs[i + 1]*
     def get_breakpoint(self, i, directrix):
         l_point = self.arcs[i].site.point
         r_point = self.arcs[i + 1].site.point
@@ -126,7 +130,7 @@ class Point:
         y_diff = self.y - point.y
         return math.sqrt(x_diff * x_diff + y_diff * y_diff)
 
-    # returns a (point, float) tuple which cointains the center and radius
+    # Returns a (point, float) tuple which cointains the center and radius
     @staticmethod
     def find_circumcircle(point_1, point_2, point_3):
         m_1 = (point_1.x - point_2.x) / (point_2.y - point_1.y)
@@ -139,9 +143,9 @@ class Point:
         center = Point(x, m_1 * x + b_1)
         r = center.get_distance_from(point_1)
         return (center, r)
-        # point slope form: (y - y1) = m(x-x1)
-        # slope intercept form: y = m * x + y1 - m * x1
-        # intersection: m1x + b1 = m2x + b2
+        # Point slope form: (y - y1) = m(x-x1)
+        # Slope intercept form: y = m * x + y1 - m * x1
+        # Intersection: m1x + b1 = m2x + b2
 
 class Edge:
     def __init__(self, start:Point, end:Point, site):
@@ -151,17 +155,17 @@ class Edge:
 
 class EdgeHolder:
     def __init__(self):
-        self.starts_by_sites = {}
+        self.endpoints_by_sites = {}
         self.edges_by_sites = {}
 
-    def push_start(self, site_1:Site, site_2:Site, start:Point):
-        self.starts_by_sites[(site_1, site_2)] = start
-        self.starts_by_sites[(site_2, site_1)] = start
-
-    def push_end(self, site_1:Site, site_2:Site, end:Point):
-        edge = Edge(self.starts_by_sites[(site_1, site_2)], end)
-        self.edges_by_sites[(site_1, site_2)] = edge
-        self.edges_by_sites[(site_2, site_1)] = edge
+    def push_endpoint(self, site_1:Site, site_2:Site, endpoint:Point):
+        self.endpoints_by_sites.setdefault((site_1, site_2), []).append(endpoint)
+        self.endpoints_by_sites.setdefault((site_2, site_1), []).append(endpoint)
+        endpoint_list = self.endpoints_by_sites((site_1, site_2))
+        if endpoint_list.count() == 2:
+            edge = Edge(endpoint_list[0], endpoint_list[1])
+            self.edges_by_sites[(site_1, site_2)] = edge
+            self.edges_by_sites[(site_2, site_1)] = edge
 
     def get_edge(self, site_1, site_2):
         return self.edges_by_sites[(site_1, site_2)]
@@ -185,10 +189,10 @@ class Parabola:
 
         self.c = math.pow(self.focus[0], 2) + self.vertex[1]
 
-    def evaluate(self, x):
+    def evaluate(self, x:float):
         return self.a * math.pow(x - self.focus[0], 2) + self.vertex[1]
 
-    # returns all intersections in ascending x order
+    # Returns all intersections in ascending x order
     def intersect_with(self, parabola):
         a_diff = self.a - parabola.a
         b_diff = self.b - parabola.b
@@ -212,13 +216,13 @@ class Parabola:
         if bounds == None:
             bounds = (0, canvas.winfo_reqwidth())
 
-        # draw directrix
+        # Draw directrix
         canvas.create_line(0, self.directrix, canvas.winfo_reqwidth(), self.directrix, dash = (3, 2))
 
-        # draw focus
+        # Draw focus
         canvas.create_oval(self.focus[0] - 2, self.focus[1] - 2, self.focus[0] + 2, self.focus[1] + 2)
 
-        # draw parabola
+        # Draw parabola
         if self.directrix == self.focus[1]:
             canvas.create_line(self.focus[0], self.focus[1], self.focus[0], canvas.winfo_reqheight())
             return
