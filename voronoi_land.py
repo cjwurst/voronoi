@@ -1,25 +1,15 @@
 import tkinter as tk
 import math
 from typing import Callable
+import random as rng
 # change
 # Responsible for managing sweep line events
-def make_voronoi_diagram(sites, xBounds, yBounds):
-    sweep_line = yBounds[1]
-    beach_line = BeachLine()
-
-    edges = EdgeHolder()
-    site_event_queue = []
-    sites.sort(key = lambda s: s.y)
-    for site in sites:
-        site_event_queue.append(SiteEvent(site))
-    circle_event_queue = []
-    circle_events_by_arc = {}
-
+def make_voronoi_diagram(sites, x_bounds, y_bounds):
     def handle_site_event(site_event):
-        add_circle_events(beach_line.handle_site_event(site_event))
+        add_circle_events(beach_line.handle_site_event(site_event, sweep_line))
             
     def handle_circle_event(circle_event):
-        add_circle_events(beach_line.handle_circle_event(circle_event))
+        add_circle_events(beach_line.handle_circle_event(circle_event, sweep_line, edges))
         remove_circle_events(circle_event.arcs[1])
 
     def add_circle_events(events):
@@ -33,6 +23,33 @@ def make_voronoi_diagram(sites, xBounds, yBounds):
         for event in circle_events_by_arc[arc]:
             circle_event_queue.remove(event)
 
+    sweep_line = y_bounds[1]
+    beach_line = BeachLine()
+
+    edges = EdgeHolder()
+    site_event_queue = []
+    sites.sort(key = lambda s: s.point.y)
+    for site in sites:
+        site_event_queue.append(SiteEvent(site))
+    circle_event_queue = []
+    circle_events_by_arc = {}
+
+    while True:
+        site_event_len = len(site_event_queue)
+        circle_event_len = len(circle_event_queue)
+        closest_site_y = y_bounds[0] - 1 if site_event_len == 0 else site_event_queue[-1].y
+        closest_circle_y = y_bounds[0] - 1 if circle_event_len == 0 else circle_event_queue[-1].y
+        if closest_site_y < y_bounds[0] and closest_circle_y < y_bounds[0]:
+            break
+        if closest_site_y > closest_circle_y:
+            sweep_line = closest_site_y
+            handle_site_event(site_event_queue.pop())
+        else:
+            sweep_line = closest_circle_y
+            handle_circle_event(circle_event_queue.pop())
+
+    return edges  
+
 class ListHelper:
     # TODO: use a binary search
     # assumes *sorted_list* is sorted descending
@@ -40,7 +57,7 @@ class ListHelper:
     def sorted_insert(element, sorted_list:list, key:Callable):
         value = key(element)
         j = 0
-        for i in range(0, sorted_list.count()):
+        for i in range(0, len(sorted_list)):
             j = i
             if key(sorted_list[i]) < value:
                 break
@@ -56,7 +73,7 @@ class BeachLine:
 
         # TODO: Binary search
         i = 0       # The index of the site whose curve is directly above *site_event.site*
-        for j in range(0, self.arcs.count()):
+        for j in range(0, len(self.arcs)):
             i = j
             if self.get_breakpoint(i, directrix) > site_event.site.point.x:
                 break
@@ -69,7 +86,7 @@ class BeachLine:
         circle_events = []
         if i > 1:
             circle_events.append(CircleEvent(self.arcs[i - 2].site, self.arcs[i - 1].site, self.arcs[i].site))
-        if self.arcs.count() > i + 2:
+        if len(self.arcs) > i + 2:
             circle_events.append(CircleEvent(self.arcs[i].site, self.arcs[i + 1].site, self.arcs[i + 2].site))
         return circle_events
 
@@ -80,9 +97,9 @@ class BeachLine:
         
         new_circle_events = []
         i = self.arcs.index(circle_event.arcs[1])
-        if i > 1 and i < self.arcs.count() - 1:
+        if i > 1 and i < len(self.arcs) - 1:
             new_circle_events.append(CircleEvent(self.arcs[i - 2], self.arcs[i - 1], self.arcs[i + 1]))
-        if i > 0 and i < self.arcs.count() - 2:
+        if i > 0 and i < len(self.arcs) - 2:
             new_circle_events.append(CircleEvent(self.arcs[i - 1], self.arcs[i + 1]), self.arcs[i + 2])
         return new_circle_events
 
@@ -113,6 +130,11 @@ class SiteEvent:
 class Site:
     def __init__(self, point):
         self.point = point
+
+    def make_random_site(x_bounds, y_bounds):
+        x = rng.randrange(x_bounds[0], x_bounds[1])
+        y = rng.randrange(y_bounds[0], y_bounds[1])
+        return Site(Point(x, y)) 
 
 # One site may appear in the beachline more than once -- this wrapper exists to differentiate them so that the 
 #   appropriate events can be removed from the circle_event_queue
@@ -162,7 +184,7 @@ class EdgeHolder:
         self.endpoints_by_sites.setdefault((site_1, site_2), []).append(endpoint)
         self.endpoints_by_sites.setdefault((site_2, site_1), []).append(endpoint)
         endpoint_list = self.endpoints_by_sites((site_1, site_2))
-        if endpoint_list.count() == 2:
+        if len(endpoint_list) == 2:
             edge = Edge(endpoint_list[0], endpoint_list[1])
             self.edges_by_sites[(site_1, site_2)] = edge
             self.edges_by_sites[(site_2, site_1)] = edge
@@ -172,6 +194,10 @@ class EdgeHolder:
 
     def get_all_edges(self):
         return list(dict.fromkeys(self.edges_by_sites.items))
+
+    def draw_on(self, canvas):
+        for edge in self.get_all_edges():
+            canvas.create_line(edge.start.x, edge.start.y, edge.end.x, edge.end.y)
 
 class Parabola:
     def __init__(self, directrix = 0, focus = (0, 0)):
@@ -234,15 +260,15 @@ if __name__ == "__main__":
     canvas.pack()
 
     def start():
-        i = 0
+        x_bounds = [0, canvas.winfo_reqwidth()]
+        y_bounds = [0, canvas.winfo_reqheight()]
+        sites = []
+        for i in range(0, 10):
+            sites.append(Site.make_random_site(x_bounds, y_bounds))
+        make_voronoi_diagram(sites, x_bounds, y_bounds)
+        
         def update():
-            nonlocal i
-            parabola = Parabola(200 + i % 50, (400, 225))
-            canvas.delete("all")
-            parabola.draw_on(canvas)
-            i += 1
-
-            canvas.after(33, update)
+            pass
         update()
 
     canvas.after(0, start)
