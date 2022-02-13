@@ -2,7 +2,7 @@ import tkinter as tk
 import math
 from typing import Callable
 import random as rng
-# change
+
 # Responsible for managing sweep line events
 def make_voronoi_diagram(sites, x_bounds, y_bounds):
     def handle_site_event(site_event):
@@ -24,7 +24,7 @@ def make_voronoi_diagram(sites, x_bounds, y_bounds):
             circle_event_queue.remove(event)
 
     sweep_line = y_bounds[1]
-    beach_line = BeachLine()
+    beach_line = BeachLine(x_bounds, y_bounds)
 
     edges = EdgeHolder()
     site_event_queue = []
@@ -64,12 +64,18 @@ class ListHelper:
         sorted_list.insert(j, element)
 
 class BeachLine:
-    def __init__(self):
+    def __init__(self, x_bounds, y_bounds):
         self.arcs = []
+        self.x_bounds = x_bounds
+        self.y_bounds = y_bounds
 
     # Returns new circle events
     def handle_site_event(self, site_event, directrix):
         arc = SiteArc(site_event.site)
+
+        if len(self.arcs) == 0:
+            self.arcs.append(arc)
+            return []
 
         # TODO: Binary search
         i = 0       # The index of the site whose curve is directly above *site_event.site*
@@ -84,10 +90,10 @@ class BeachLine:
         self.arcs.insert(i, old_arc)
 
         circle_events = []
-        if i > 1:
-            circle_events.append(CircleEvent(self.arcs[i - 2].site, self.arcs[i - 1].site, self.arcs[i].site))
-        if len(self.arcs) > i + 2:
-            circle_events.append(CircleEvent(self.arcs[i].site, self.arcs[i + 1].site, self.arcs[i + 2].site))
+        if i > 1 and self.arcs[i - 2].site != self.arcs[i].site:
+            circle_events.append(CircleEvent(self.arcs[i - 2], self.arcs[i - 1], self.arcs[i]))
+        if len(self.arcs) > i + 2 and self.arcs[i].site != self.arcs[i + 2].site:
+            circle_events.append(CircleEvent(self.arcs[i], self.arcs[i + 1], self.arcs[i + 2]))
         return circle_events
 
     def handle_circle_event(self, circle_event, directrix, edge_holder):
@@ -106,6 +112,8 @@ class BeachLine:
     # Returns the breakpoint between *arcs[i] and arcs[i + 1]*
     def get_breakpoint(self, i, directrix):
         l_point = self.arcs[i].site.point
+        if i == len(self.arcs) - 1:
+            return Parabola(directrix, (l_point.x, l_point.y)).evaluate(self.x_bounds[1])
         r_point = self.arcs[i + 1].site.point
         l_parabola = Parabola(directrix, (l_point.x, l_point.y))
         r_parabola = Parabola(directrix, (r_point.x, r_point.y))
@@ -204,18 +212,21 @@ class Parabola:
         self.directrix = directrix
         self.focus = focus
         self.vertex = (focus[0], (directrix + focus[1]) / 2)
+        (self.a, self.b, self.c) = Parabola.get_coefficients(directrix, focus)
 
-        directrix_vertex_diff = abs(self.vertex[1] - directrix)
-        if directrix_vertex_diff == 0:
-            self.a = 0
-        else:
-            self.a = 1 / 4 / directrix_vertex_diff
+    def get_coefficients(directrix, focus):
+        denominator = 2 * (focus[1] - directrix)
+        if denominator == 0:
+            return
 
-        self.b = -2 * self.a * self.focus[0]
+        a = 1 / denominator
+        b = -2 * focus[0] / denominator
+        c = (pow(focus[0], 2) + pow(focus[1], 2) - pow(directrix, 2)) / denominator
 
-        self.c = math.pow(self.focus[0], 2) + self.vertex[1]
+        return (a, b, c)
 
     def evaluate(self, x:float):
+        return self.a * math.pow(x, 2) + self.b * x + self.c
         return self.a * math.pow(x - self.focus[0], 2) + self.vertex[1]
 
     # Returns all intersections in ascending x order
@@ -229,13 +240,13 @@ class Parabola:
         if determinant < 0:
             return []
         elif determinant == 0:
-            x = -self.b / (2 * self.a)
+            x = -b_diff / (2 * a_diff)
             return [(x, self.evaluate(x))]
         else:
             sqrt_determinant = math.sqrt(determinant)
-            denominator = 2 * self.a
-            l_x = (-self.b - sqrt_determinant) / denominator
-            r_x = (-self.b + sqrt_determinant) / denominator
+            denominator = 2 * a_diff
+            l_x = (-b_diff - sqrt_determinant) / denominator
+            r_x = (-b_diff + sqrt_determinant) / denominator
             return [(l_x, self.evaluate(l_x)), (r_x, self.evaluate(r_x))]
 
     def draw_on(self, canvas:tk.Canvas, bounds:tuple[int, int] = None, step_size:int = 1):
