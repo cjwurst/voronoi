@@ -3,6 +3,8 @@ import math
 from typing import Callable
 import random as rng
 
+from sympy import Point2D
+
 # Responsible for managing sweep line events
 def make_voronoi_diagram(sites, x_bounds, y_bounds):
     def handle_site_event(site_event):
@@ -21,7 +23,8 @@ def make_voronoi_diagram(sites, x_bounds, y_bounds):
     # Removes all circle events associated with *arc*
     def remove_circle_events(arc):
         for event in circle_events_by_arc[arc]:
-            circle_event_queue.remove(event)
+            if event in circle_event_queue:
+                circle_event_queue.remove(event)
 
     sweep_line = y_bounds[1]
     beach_line = BeachLine(x_bounds, y_bounds)
@@ -81,13 +84,14 @@ class BeachLine:
         i = 0       # The index of the site whose curve is directly above *site_event.site*
         for j in range(0, len(self.arcs)):
             i = j
-            if self.get_breakpoint(i, directrix) > site_event.site.point.x:
+            if self.get_breakpoint(i, directrix)[0] > site_event.site.point.x:
                 break
 
         # The new site is sandwiched between two occurences of the old site
         old_arc = self.arcs[i]
         self.arcs.insert(i, arc)
         self.arcs.insert(i, old_arc)
+        i = i + 1
 
         circle_events = []
         if i > 1 and self.arcs[i - 2].site != self.arcs[i].site:
@@ -113,7 +117,7 @@ class BeachLine:
     def get_breakpoint(self, i, directrix):
         l_point = self.arcs[i].site.point
         if i == len(self.arcs) - 1:
-            return Parabola(directrix, (l_point.x, l_point.y)).evaluate(self.x_bounds[1])
+            return (self.x_bounds[1], Parabola(directrix, (l_point.x, l_point.y)).evaluate(self.x_bounds[1]))
         r_point = self.arcs[i + 1].site.point
         l_parabola = Parabola(directrix, (l_point.x, l_point.y))
         r_parabola = Parabola(directrix, (r_point.x, r_point.y))
@@ -127,7 +131,7 @@ class CircleEvent:
     def __init__(self, l_arc, m_arc, r_arc):
         self.arcs = [l_arc, m_arc, r_arc]
         self.sites = [l_arc.site, m_arc.site, r_arc.site]
-        (r, center) = Point.find_circumcircle(self.sites[0].point, self.sites[1].point, self.sites[2].point)
+        (center, r) = Point.find_circumcircle(self.sites[0].point, self.sites[1].point, self.sites[2].point)
         self.y = center.y - r
 
 class SiteEvent:
@@ -142,7 +146,10 @@ class Site:
     def make_random_site(x_bounds, y_bounds):
         x = rng.randrange(x_bounds[0], x_bounds[1])
         y = rng.randrange(y_bounds[0], y_bounds[1])
-        return Site(Point(x, y)) 
+        return Site(Point(x, y))
+    
+    def draw_on(self, canvas):
+        canvas.create_oval(self.point.x - 2, self.point.y - 2, self.point.x + 2, self.point.y + 2)
 
 # One site may appear in the beachline more than once -- this wrapper exists to differentiate them so that the 
 #   appropriate events can be removed from the circle_event_queue
@@ -178,10 +185,9 @@ class Point:
         # Intersection: m1x + b1 = m2x + b2
 
 class Edge:
-    def __init__(self, start:Point, end:Point, site):
+    def __init__(self, start:Point, end:Point):
         self.start = start
         self.end = end
-        self.site = site
 
 class EdgeHolder:
     def __init__(self):
@@ -191,7 +197,7 @@ class EdgeHolder:
     def push_endpoint(self, site_1:Site, site_2:Site, endpoint:Point):
         self.endpoints_by_sites.setdefault((site_1, site_2), []).append(endpoint)
         self.endpoints_by_sites.setdefault((site_2, site_1), []).append(endpoint)
-        endpoint_list = self.endpoints_by_sites((site_1, site_2))
+        endpoint_list = self.endpoints_by_sites[(site_1, site_2)]
         if len(endpoint_list) == 2:
             edge = Edge(endpoint_list[0], endpoint_list[1])
             self.edges_by_sites[(site_1, site_2)] = edge
@@ -201,18 +207,19 @@ class EdgeHolder:
         return self.edges_by_sites[(site_1, site_2)]
 
     def get_all_edges(self):
-        return list(dict.fromkeys(self.edges_by_sites.items))
+        DEBUG = self.edges_by_sites
+        return list(self.edges_by_sites.values())
 
     def draw_on(self, canvas):
         for edge in self.get_all_edges():
-            canvas.create_line(edge.start.x, edge.start.y, edge.end.x, edge.end.y)
+            canvas.create_line(edge.start[0], edge.start[1], edge.end[0], edge.end[1])
 
 class Parabola:
     def __init__(self, directrix = 0, focus = (0, 0)):
         self.directrix = directrix
         self.focus = focus
         self.vertex = (focus[0], (directrix + focus[1]) / 2)
-        (self.a, self.b, self.c) = Parabola.get_coefficients(directrix, focus)
+        self.a, self.b, self.c = Parabola.get_coefficients(directrix, focus)
 
     def get_coefficients(directrix, focus):
         denominator = 2 * (focus[1] - directrix)
@@ -223,11 +230,10 @@ class Parabola:
         b = -2 * focus[0] / denominator
         c = (pow(focus[0], 2) + pow(focus[1], 2) - pow(directrix, 2)) / denominator
 
-        return (a, b, c)
+        return [a, b, c]
 
     def evaluate(self, x:float):
         return self.a * math.pow(x, 2) + self.b * x + self.c
-        return self.a * math.pow(x - self.focus[0], 2) + self.vertex[1]
 
     # Returns all intersections in ascending x order
     def intersect_with(self, parabola):
@@ -276,7 +282,10 @@ if __name__ == "__main__":
         sites = []
         for i in range(0, 10):
             sites.append(Site.make_random_site(x_bounds, y_bounds))
-        make_voronoi_diagram(sites, x_bounds, y_bounds)
+        edges = make_voronoi_diagram(sites, x_bounds, y_bounds)
+        edges.draw_on(canvas)
+        for site in sites:
+            site.draw_on(canvas)
         
         def update():
             pass
